@@ -2,33 +2,68 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Procesar Video de Seña</title>
+  <title>Reconocimiento Automático de Señas</title>
 </head>
 <body>
-  <h2>Subir video para traducir seña</h2>
-  <form id="formulario" enctype="multipart/form-data">
-    <input type="file" name="file" accept="video/mp4" required />
-    <button type="submit">Procesar</button>
-  </form>
+  <h2>Reconocimiento Automático (Webcam)</h2>
+  <video id="video" width="320" height="240" autoplay muted></video>
+  <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
 
-  <h3>Resultado:</h3>
-  <pre id="resultado">Esperando video...</pre>
+  <h3>Traducción:</h3>
+  <pre id="resultado">Esperando movimiento...</pre>
 
   <script>
-    const form = document.getElementById("formulario");
-    const resultado = document.getElementById("resultado");
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const resultado = document.getElementById('resultado');
+    const ctx = canvas.getContext('2d');
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    let frameBuffer = [];
+    const maxFrames = 30;
+    let isSending = false;
 
-      const formData = new FormData(form);
-      const response = await fetch("http://localhost:8000/api/procesar", {
-        method: "POST",
-        body: formData
-      });
+    // Acceder a la cámara
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
 
-      const data = await response.json();
-      resultado.textContent = JSON.stringify(data, null, 2);
+      // Comenzar a capturar frames continuamente
+      setInterval(() => {
+        if (isSending) return;
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+          frameBuffer.push(blob);
+
+          if (frameBuffer.length >= maxFrames) {
+            isSending = true;
+
+            // Crear video a partir de los 30 frames
+            const videoBlob = new Blob(frameBuffer, { type: 'video/webm' });
+            const formData = new FormData();
+            formData.append("file", videoBlob, "captura.webm");
+
+            resultado.textContent = "⏳ Procesando...";
+
+            fetch("http://localhost:8000/api/procesar", {
+              method: "POST",
+              body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+              resultado.textContent = `📝 Traducción: ${data.traduccion}`;
+            })
+            .catch(() => {
+              resultado.textContent = "⚠️ Error al procesar el video";
+            })
+            .finally(() => {
+              frameBuffer = [];
+              isSending = false;
+            });
+          }
+        }, "image/webp");
+      }, 100); // cada 100ms → 30 frames = ~3 segundos
+    }).catch(err => {
+      alert("Error al acceder a la cámara: " + err);
     });
   </script>
 </body>
